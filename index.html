@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitor Cenas de Uso — Painel em Tempo Real (CnR Brás / CRS Sudeste)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .tab-active { background-color: #0f766e; color: #ffffff; }
+    .tab-idle { background-color: transparent; color: #334155; }
+    .tab-idle:hover { background-color: #f1f5f9; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 hidden max-w-sm rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-lg transition-opacity"></div>
+
+  <!-- Top Header -->
+  <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <div class="flex items-center gap-3">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-teal-700 text-white shadow-sm">
+          <i data-lucide="activity" class="h-5 w-5"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold leading-tight text-slate-900 sm:text-lg">Monitor Cenas de Uso</h1>
+          <p class="text-xs text-slate-500">CRS Sudeste · Planilha Diária · CnR Brás (Somente Leitura)</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="statusBadge" class="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+          <span id="statusDot" class="h-2 w-2 rounded-full bg-amber-500"></span>
+          <span id="statusText">Base 21/11/2026 (Offline)</span>
+        </span>
+
+        <button id="btnOnlyBras" type="button" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition">
+          <i data-lucide="filter" class="h-3.5 w-3.5"></i>
+          <span>Somente Equipe Brás</span>
+        </button>
+
+        <button id="btnRefreshNow" type="button" class="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800 transition">
+          <i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>
+          <span>Atualizar</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="mx-auto max-w-7xl border-t border-slate-100 px-4 py-2 sm:px-6">
+      <nav class="flex flex-wrap gap-1.5" aria-label="Navegação principal">
+        <button data-tab="visao" type="button" class="nav-tab tab-active inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold sm:text-sm transition">
+          <i data-lucide="layout-dashboard" class="h-4 w-4"></i>
+          <span>Visão Geral</span>
+        </button>
+        <button data-tab="inconsistencias" type="button" class="nav-tab tab-idle inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold sm:text-sm transition">
+          <i data-lucide="alert-triangle" class="h-4 w-4"></i>
+          <span>Inconsistências</span>
+          <span id="badgeCount" class="ml-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">0</span>
+        </button>
+        <button data-tab="equipes" type="button" class="nav-tab tab-idle inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold sm:text-sm transition">
+          <i data-lucide="users" class="h-4 w-4"></i>
+          <span>Equipes &amp; Cenas</span>
+        </button>
+        <button data-tab="appsscript" type="button" class="nav-tab tab-idle inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold sm:text-sm transition">
+          <i data-lucide="code-2" class="h-4 w-4"></i>
+          <span>Apps Script &amp; Netlify</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+    <!-- Live Connection Bar -->
+    <section class="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex-1">
+          <label for="apiUrlInput" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            URL do Web App do Google Apps Script (tempo real)
+          </label>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <input id="apiUrlInput" type="url" placeholder="https://script.google.com/macros/s/SEU_ID/exec"
+              class="mono w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-800 focus:border-teal-600 focus:bg-white focus:outline-none" />
+            <button id="btnConnect" type="button" class="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition">
+              Conectar API
+            </button>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 pt-1 lg:pt-5">
+          <div class="flex items-center gap-2">
+            <label for="autoRefreshSelect" class="text-xs font-medium text-slate-600">Auto-atualizar:</label>
+            <select id="autoRefreshSelect" class="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 focus:border-teal-600 focus:outline-none">
+              <option value="0">Desligado</option>
+              <option value="60">A cada 1 min</option>
+              <option value="300">A cada 5 min</option>
+            </select>
+          </div>
+          <span id="lastUpdatedLabel" class="mono text-xs text-slate-500">Ref: 21/11/2026</span>
+        </div>
+      </div>
+      <div id="apiErrorBanner" class="mt-3 hidden rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"></div>
+    </section>
+
+    <!-- TAB 1: VISÃO GERAL -->
+    <section id="tab-visao" class="tab-panel space-y-6">
+      <!-- KPI Cards -->
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Subnotificação Diária (05/11)</p>
+          <p id="kpiDiariaGap" class="mono mt-2 text-3xl font-bold text-red-700">-134</p>
+          <p class="mt-1 text-xs text-slate-500">Fórmula truncada em K63 (10h)</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Lacuna CRS Sudeste (Nov)</p>
+          <p id="kpiCrsGap" class="mono mt-2 text-3xl font-bold text-red-700">-103</p>
+          <p class="mt-1 text-xs text-slate-500">14 falhas de soma entre 02/11 e 16/11</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Média Diária CnR Brás</p>
+          <p id="kpiBrasAvg" class="mono mt-2 text-3xl font-bold text-teal-700">57,5 / 55,6</p>
+          <p class="mt-1 text-xs text-slate-500">Turnos 10h / 15h (7 cenas ativas)</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">CNR - BRÁS (Nominal)</p>
+          <p id="kpiNominal" class="mono mt-2 text-3xl font-bold text-slate-900">3.011</p>
+          <p class="mt-1 text-xs text-slate-500">Registros agregados (zero exposição PII)</p>
+        </div>
+      </div>
+
+      <!-- Charts Grid -->
+      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-3">
+            <h2 class="text-base font-bold text-slate-900">Evolução Diária — Planilha Diária (Nov/2026)</h2>
+            <p class="text-xs text-slate-500">Comparação entre soma real recalculada (10h e 15h) e total informado na linha 63.</p>
+          </div>
+          <div class="relative h-72">
+            <canvas id="chartDiaria"></canvas>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-3">
+            <h2 class="text-base font-bold text-slate-900">Calculado vs. Informado — CRS Sudeste</h2>
+            <p class="text-xs text-slate-500">Cortes de segunda e quinta-feira: soma real G+H+I frente à coluna J.</p>
+          </div>
+          <div class="relative h-72">
+            <canvas id="chartCrs"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Links -->
+      <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="mb-3 text-sm font-bold uppercase tracking-wide text-slate-700">Planilhas Monitoradas (Acesso Direto)</h2>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <a href="https://docs.google.com/spreadsheets/d/11zw_rhfcoXxZNcrXPqtfnk3fgYPBTwsXdJfTQcwGpN4/edit?usp=drivesdk&ouid=118264888730925106111" target="_blank" rel="noopener noreferrer"
+            class="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 hover:border-teal-600 hover:bg-teal-50/40 transition">
+            <div>
+              <p class="text-sm font-semibold text-slate-900">Planilha Diária</p>
+              <p class="text-xs text-slate-500">Aba Novembro26 (10h e 15h)</p>
+            </div>
+            <i data-lucide="external-link" class="h-4 w-4 text-teal-700"></i>
+          </a>
+          <a href="https://docs.google.com/spreadsheets/d/1-UF36937geDEdLTwDqnkYD0zAcoQLIACDPgvK_LlFN8/edit?usp=drivesdk&ouid=118264888730925106111" target="_blank" rel="noopener noreferrer"
+            class="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 hover:border-teal-600 hover:bg-teal-50/40 transition">
+            <div>
+              <p class="text-sm font-semibold text-slate-900">CRS Sudeste</p>
+              <p class="text-xs text-slate-500">Cortes Segunda e Quinta-feira</p>
+            </div>
+            <i data-lucide="external-link" class="h-4 w-4 text-teal-700"></i>
+          </a>
+          <a href="https://docs.google.com/spreadsheets/d/1u8ZAfZL18CuPdycBnJzlSzVUU5peUUw5MNyzFtwkhGY/edit?usp=drivesdk&ouid=118264888730925106111" target="_blank" rel="noopener noreferrer"
+            class="flex items-center justify-between rounded-xl border border-slate-200 p-3.5 hover:border-teal-600 hover:bg-teal-50/40 transition">
+            <div>
+              <p class="text-sm font-semibold text-slate-900">CNR - BRÁS</p>
+              <p class="text-xs text-slate-500">Registro Diário &amp; Base (Agregado)</p>
+            </div>
+            <i data-lucide="external-link" class="h-4 w-4 text-teal-700"></i>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: INCONSISTÊNCIAS -->
+    <section id="tab-inconsistencias" class="tab-panel hidden space-y-4">
+      <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <input id="searchInput" type="text" placeholder="Buscar equipe, cena ou erro..."
+            class="rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-800 focus:border-teal-600 focus:outline-none sm:col-span-2" />
+          <select id="filterSheet" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+            <option value="ALL">Todas as planilhas</option>
+            <option value="Planilha Diária">Planilha Diária</option>
+            <option value="CRS Sudeste">CRS Sudeste</option>
+            <option value="CNR - BRÁS">CNR - BRÁS</option>
+          </select>
+          <div class="flex gap-2">
+            <select id="filterSev" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700">
+              <option value="ALL">Todas severidades</option>
+              <option value="Crítica">Crítica</option>
+              <option value="Atenção">Atenção</option>
+            </select>
+            <button id="btnExportCsv" type="button" class="shrink-0 inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition">
+              <i data-lucide="download" class="h-3.5 w-3.5"></i>
+              <span>CSV</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-left text-xs sm:text-sm">
+            <thead class="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <tr>
+                <th class="px-4 py-3">Severidade</th>
+                <th class="px-4 py-3">Planilha</th>
+                <th class="px-4 py-3">Equipe</th>
+                <th class="px-4 py-3">Local / Linha</th>
+                <th class="px-4 py-3">Detalhe da Inconsistência</th>
+              </tr>
+            </thead>
+            <tbody id="issuesTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: EQUIPES & CENAS -->
+    <section id="tab-equipes" class="tab-panel hidden space-y-6">
+      <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="mb-3">
+          <h2 class="text-base font-bold text-slate-900">Média Diária de Pessoas por Equipe (10h vs. 15h)</h2>
+          <p class="text-xs text-slate-500">Distribuição regional na Planilha Diária (01/11 a 21/11/2026). Belém e Brás concentram 53% do volume.</p>
+        </div>
+        <div class="relative h-80">
+          <canvas id="chartEquipes"></canvas>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-left text-xs sm:text-sm">
+            <thead class="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <tr>
+                <th class="px-4 py-3">Equipe CnR</th>
+                <th class="px-4 py-3 text-right">Cenas Ativas</th>
+                <th class="px-4 py-3 text-right">Média 10h</th>
+                <th class="px-4 py-3 text-right">Média 15h</th>
+                <th class="px-4 py-3 text-right">Média Combinada</th>
+              </tr>
+            </thead>
+            <tbody id="teamsTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: APPS SCRIPT & NETLIFY -->
+    <section id="tab-appsscript" class="tab-panel hidden space-y-6">
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900">1. Publicar a API no Google Apps Script</h2>
+          <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+            <li>Acesse <span class="mono font-semibold text-slate-800">script.google.com</span> com sua conta Google que tem acesso às 3 planilhas.</li>
+            <li>Crie um novo projeto, apague o conteúdo inicial e cole o código <span class="mono font-semibold text-slate-800">Code.gs</span> abaixo.</li>
+            <li>Clique em <strong>Implantar → Nova implantação → App da Web</strong>.</li>
+            <li>Em <em>Executar como</em> escolha <strong>Eu</strong>; em <em>Quem pode acessar</em> escolha <strong>Qualquer pessoa</strong>.</li>
+            <li>Autorize o acesso somente leitura, copie a URL gerada (termina em <span class="mono">/exec</span>) e cole na barra superior deste painel.</li>
+          </ol>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 class="text-base font-bold text-slate-900">2. Subir o Painel no Netlify Drop</h2>
+          <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+            <li>Baixe o arquivo <span class="mono font-semibold text-slate-800">painel_cenas_uso_netlify.zip</span> (já contém <span class="mono">index.html</span> na raiz).</li>
+            <li>Abra <span class="mono font-semibold text-slate-800">app.netlify.com/drop</span> no navegador (PC ou celular em modo computador).</li>
+            <li>Arraste o arquivo <span class="mono">.zip</span> (ou a pasta descompactada) para a área de upload do Netlify Drop.</li>
+            <li>Abra o link publicado pelo Netlify, cole sua URL <span class="mono">/exec</span> do Apps Script na barra acima e clique em <strong>Conectar API</strong>.</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-900 p-4 shadow-sm">
+        <div class="mb-3 flex items-center justify-between">
+          <span class="mono text-xs font-semibold text-teal-400">Code.gs — Google Apps Script (Somente Leitura)</span>
+          <button id="btnCopyGas" type="button" class="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-500 transition">
+            <i data-lucide="copy" class="h-3.5 w-3.5"></i>
+            <span>Copiar Code.gs</span>
+          </button>
+        </div>
+        <pre id="gasCodeBlock" class="mono max-h-96 overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-relaxed text-slate-200"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const GAS_CODE = `/**
+ * Monitor Cenas de Uso — API em Tempo Real (Google Apps Script)
+ * Somente leitura: nunca altera células, fórmulas ou linhas de nenhuma equipe.
+ * Privacidade: em CNR - BRÁS retorna apenas contagens agregadas (zero PII).
+ */
+const CONFIG = {
+  CRS_SUDESTE_ID: '1-UF36937geDEdLTwDqnkYD0zAcoQLIACDPgvK_LlFN8',
+  PLANILHA_DIARIA_ID: '11zw_rhfcoXxZNcrXPqtfnk3fgYPBTwsXdJfTQcwGpN4',
+  CNR_BRAS_ID: '1u8ZAfZL18CuPdycBnJzlSzVUU5peUUw5MNyzFtwkhGY',
+  ABA_DIARIA_PADRAO: 'Novembro26',
+  SUFIXO_CRS_PADRAO: '112026'
+};
+
+function doGet(e) {
+  const params = (e && e.parameter) ? e.parameter : {};
+  const abaDiaria = params.abaDiaria || CONFIG.ABA_DIARIA_PADRAO;
+  const sufixoCrs = params.sufixoCrs || CONFIG.SUFIXO_CRS_PADRAO;
+  const resultado = {
+    ok: true,
+    atualizadoEm: new Date().toISOString(),
+    fonte: 'ao_vivo',
+    planilhaDiaria: null,
+    crsSudeste: null,
+    cnrBras: null,
+    inconsistencias: [],
+    errosLeitura: []
+  };
+  try {
+    const pd = auditarPlanilhaDiaria_(CONFIG.PLANILHA_DIARIA_ID, abaDiaria);
+    resultado.planilhaDiaria = pd.resumo;
+    resultado.inconsistencias = resultado.inconsistencias.concat(pd.inconsistencias);
+  } catch (err) { resultado.errosLeitura.push('Planilha Diária: ' + err.message); }
+  try {
+    const crs = auditarCrsSudeste_(CONFIG.CRS_SUDESTE_ID, sufixoCrs);
+    resultado.crsSudeste = crs.resumo;
+    resultado.inconsistencias = resultado.inconsistencias.concat(crs.inconsistencias);
+  } catch (err) { resultado.errosLeitura.push('CRS Sudeste: ' + err.message); }
+  try {
+    const bras = auditarCnrBrasAgregado_(CONFIG.CNR_BRAS_ID);
+    resultado.cnrBras = bras.resumo;
+    resultado.inconsistencias = resultado.inconsistencias.concat(bras.inconsistencias);
+  } catch (err) { resultado.errosLeitura.push('CNR - BRÁS: ' + err.message); }
+
+  return ContentService
+    .createTextOutput(JSON.stringify(resultado))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function toNum_(val) {
+  if (val === null || val === undefined || val === '') return { n: 0, err: false };
+  if (typeof val === 'number') return { n: val, err: false };
+  const s = String(val).trim();
+  if (s === '' || s === '-' || s === '–' || s.toUpperCase() === 'N/A') return { n: 0, err: false };
+  if (s.indexOf('#') === 0) return { n: 0, err: true };
+  const p = Number(s.replace(',', '.'));
+  return isNaN(p) ? { n: 0, err: true } : { n: p, err: false };
+}
+
+function auditarPlanilhaDiaria_(sheetId, abaNome) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  const ws = ss.getSheetByName(abaNome);
+  if (!ws) throw new Error('Aba não encontrada: ' + abaNome);
+  const lastRow = Math.min(ws.getLastRow(), 120);
+  const lastCol = Math.min(ws.getLastColumn(), 62);
+  const vals = ws.getRange(1, 1, lastRow, lastCol).getValues();
+  const forms = ws.getRange(1, 1, lastRow, lastCol).getFormulas();
+  let totalRowIdx = -1;
+  for (let r = 0; r < vals.length; r++) {
+    if (String(vals[r][0] || '').trim().toLowerCase() === 'total') { totalRowIdx = r; break; }
+  }
+  if (totalRowIdx < 2) throw new Error('Linha Total não localizada.');
+  const inconsistencias = [], serieDiaria = [], equipesMap = {}, linhaEquipe = [];
+  let equipeAtual = '';
+  for (let r = 2; r < totalRowIdx; r++) {
+    const colA = String(vals[r][0] || '').replace(/\\n/g, ' ').trim();
+    if (colA) equipeAtual = colA.split(/novembro|outubro|dezembro|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro/i)[0].trim();
+    linhaEquipe[r] = equipeAtual || 'Sem Equipe';
+    if (!equipesMap[linhaEquipe[r]]) equipesMap[linhaEquipe[r]] = { equipe: linhaEquipe[r], cenas: 0, soma10h: 0, soma15h: 0 };
+    equipesMap[linhaEquipe[r]].cenas += 1;
+  }
+  let diasComDados = 0, maiorSubnotificacao = 0;
+  for (let d = 1; d <= 30; d++) {
+    const c10 = 2 + (d - 1) * 2, c15 = 3 + (d - 1) * 2;
+    if (c15 >= lastCol) break;
+    if (Number(vals[0][c10]) !== d) {
+      inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'Geral', local: 'Cabeçalho Dia ' + d, detalhe: 'Cabeçalho indica "' + vals[0][c10] + '" no lugar de ' + d + '.' });
+    }
+    let soma10 = 0, soma15 = 0, temDado = false;
+    for (let r = 2; r < totalRowIdx; r++) {
+      if (typeof vals[r][c10] === 'number') { soma10 += vals[r][c10]; temDado = true; equipesMap[linhaEquipe[r]].soma10h += vals[r][c10]; }
+      if (typeof vals[r][c15] === 'number') { soma15 += vals[r][c15]; temDado = true; equipesMap[linhaEquipe[r]].soma15h += vals[r][c15]; }
+    }
+    if (!temDado) continue;
+    diasComDados++;
+    for (let r = 2; r < totalRowIdx; r++) {
+      if (vals[r][c15] === '' || vals[r][c15] === null) {
+        inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Atenção', equipe: linhaEquipe[r], local: 'Dia ' + d + ' (15h) · Linha ' + (r + 1), detalhe: 'Célula vazia (' + String(vals[r][1] || '').slice(0, 42) + ').' });
+      }
+    }
+    const rep10 = toNum_(vals[totalRowIdx][c10]).n, rep15 = toNum_(vals[totalRowIdx][c15]).n;
+    if (Math.abs(soma10 - rep10) > 0.01) {
+      if (Math.abs(soma10 - rep10) > Math.abs(maiorSubnotificacao)) maiorSubnotificacao = rep10 - soma10;
+      inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Crítica', equipe: 'Geral', local: 'Dia ' + d + ' (10h) · Linha ' + (totalRowIdx + 1), detalhe: 'Informado=' + rep10 + ' != Calculado=' + soma10 + ' (' + (forms[totalRowIdx][c10] || 'fixo') + ').' });
+    }
+    if (Math.abs(soma15 - rep15) > 0.01) {
+      inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Crítica', equipe: 'Geral', local: 'Dia ' + d + ' (15h) · Linha ' + (totalRowIdx + 1), detalhe: 'Informado=' + rep15 + ' != Calculado=' + soma15 + '.' });
+    }
+    serieDiaria.push({ dia: d, calc10h: soma10, rep10h: rep10, calc15h: soma15, rep15h: rep15 });
+  }
+  const equipes = Object.keys(equipesMap).map(function(k) {
+    const e = equipesMap[k];
+    return { equipe: e.equipe, cenas: e.cenas, media10h: diasComDados ? Number((e.soma10h / diasComDados).toFixed(1)) : 0, media15h: diasComDados ? Number((e.soma15h / diasComDados).toFixed(1)) : 0 };
+  }).sort(function(a, b) { return (b.media10h + b.media15h) - (a.media10h + a.media15h); });
+  return { resumo: { aba: abaNome, diasRegistrados: diasComDados, maiorSubnotificacao: maiorSubnotificacao, serieDiaria: serieDiaria, equipes: equipes }, inconsistencias: inconsistencias };
+}
+
+function auditarCrsSudeste_(sheetId, sufixo) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  const sheets = ss.getSheets().filter(function(s) { return s.getName().trim().slice(-sufixo.length) === sufixo; });
+  const cortes = [], inconsistencias = [];
+  let lacunaTotal = 0;
+  sheets.forEach(function(ws) {
+    const tab = ws.getName().trim(), lastRow = ws.getLastRow();
+    if (lastRow < 5) return;
+    const vals = ws.getRange(5, 1, lastRow - 4, 15).getValues();
+    const forms = ws.getRange(5, 1, lastRow - 4, 15).getFormulas();
+    let equipeAtual = '', calcSum = 0, repSum = 0, errosSoma = 0, errosData = 0;
+    for (let i = 0; i < vals.length; i++) {
+      const row = vals[i], fRow = forms[i], rowNum = i + 5;
+      const t = String(row[0] || '').trim();
+      if (t) { if (/^(TOTAL|SOMA)/i.test(t)) continue; equipeAtual = t.split('(')[0].trim(); }
+      const dataVal = row[1], endVal = String(row[3] || '').trim();
+      if (!endVal && (dataVal === '' || dataVal === null)) continue;
+      const g = toNum_(row[6]).n, h = toNum_(row[7]).n, ii = toNum_(row[8]).n, jObj = toNum_(row[9]);
+      const calc = g + h + ii;
+      calcSum += calc; repSum += jObj.n;
+      if (jObj.err) {
+        errosSoma++;
+        inconsistencias.push({ planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: equipeAtual, local: tab + ' · Linha ' + rowNum, detalhe: 'Valor inválido em TOTAL: "' + row[9] + '".' });
+      } else if (Math.abs(calc - jObj.n) > 0.01) {
+        errosSoma++;
+        inconsistencias.push({ planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: equipeAtual, local: tab + ' · Linha ' + rowNum, detalhe: 'G(' + g + ')+H(' + h + ')+I(' + ii + ')=' + calc + ' != J=' + jObj.n + ' (' + (fRow[9] || 'fixo') + ').' });
+      }
+      if (!(dataVal instanceof Date) && (!dataVal || String(dataVal).trim() === '' || String(dataVal).trim() === '-')) {
+        errosData++;
+        inconsistencias.push({ planilha: 'CRS Sudeste', severidade: 'Atenção', equipe: equipeAtual, local: tab + ' · Linha ' + rowNum, detalhe: 'Data ausente ou inválida (' + endVal.slice(0, 38) + ').' });
+      }
+    }
+    const dif = repSum - calcSum;
+    lacunaTotal += dif;
+    cortes.push({ aba: tab, label: tab.slice(0, 2) + '/' + tab.slice(2, 4), calculado: calcSum, informado: repSum, diferenca: dif, errosSoma: errosSoma, errosData: errosData });
+  });
+  return { resumo: { totalCortes: cortes.length, lacunaAcumulada: lacunaTotal, cortes: cortes }, inconsistencias: inconsistencias };
+}
+
+function auditarCnrBrasAgregado_(sheetId) {
+  const ss = SpreadsheetApp.openById(sheetId);
+  const wsReg = ss.getSheetByName('Registro Diário');
+  const wsBase = ss.getSheetByName('Base');
+  const inconsistencias = [];
+  const totalRegistros = wsReg ? Math.max(0, wsReg.getLastRow() - 1) : 0;
+  let datasInvalidas = 0;
+  if (wsReg && totalRegistros > 0) {
+    const colDatas = wsReg.getRange(2, 2, totalRegistros, 1).getValues();
+    for (let i = 0; i < colDatas.length; i++) {
+      if (!colDatas[i][0] || (!(colDatas[i][0] instanceof Date) && String(colDatas[i][0]).trim() === '')) datasInvalidas++;
+    }
+    if (datasInvalidas > 0) {
+      inconsistencias.push({ planilha: 'CNR - BRÁS', severidade: 'Atenção', equipe: 'CnR Brás', local: 'Registro Diário', detalhe: datasInvalidas + ' registros sem data válida (contagem agregada).' });
+    }
+  }
+  let baseDesalinhada = false;
+  if (wsBase && wsBase.getLastRow() >= 2) {
+    const amostra = wsBase.getRange(1, 1, 2, 2).getValues();
+    if (String(amostra[0][0]).toLowerCase().indexOf('data') !== -1 && !(amostra[1][0] instanceof Date)) {
+      baseDesalinhada = true;
+      inconsistencias.push({ planilha: 'CNR - BRÁS', severidade: 'Atenção', equipe: 'CnR Brás', local: 'Aba Base · Colunas A/B', detalhe: 'Colunas Data de Inclusão e Equipe/Líder invertidas e deslocamento a partir da col. V.' });
+    }
+  }
+  return { resumo: { totalRegistros: totalRegistros, datasInvalidas: datasInvalidas, baseDesalinhada: baseDesalinhada }, inconsistencias: inconsistencias };
+}`;
+
+    // Dados reais verificados da auditoria de 21/11/2026 (estado inicial imediato)
+    const INITIAL_DATA = {
+      atualizadoEm: '2026-11-21T20:14:00-03:00',
+      fonte: 'referencia',
+      planilhaDiaria: {
+        aba: 'Novembro26',
+        diasRegistrados: 21,
+        maiorSubnotificacao: -134,
+        serieDiaria: [
+          { dia: 1, calc10h: 367, rep10h: 367, calc15h: 302, rep15h: 302 },
+          { dia: 2, calc10h: 329, rep10h: 329, calc15h: 308, rep15h: 308 },
+          { dia: 3, calc10h: 321, rep10h: 321, calc15h: 314, rep15h: 314 },
+          { dia: 4, calc10h: 328, rep10h: 328, calc15h: 314, rep15h: 314 },
+          { dia: 5, calc10h: 288, rep10h: 154, calc15h: 340, rep15h: 340 },
+          { dia: 6, calc10h: 314, rep10h: 314, calc15h: 393, rep15h: 393 },
+          { dia: 7, calc10h: 345, rep10h: 345, calc15h: 328, rep15h: 328 },
+          { dia: 8, calc10h: 251, rep10h: 251, calc15h: 231, rep15h: 231 },
+          { dia: 9, calc10h: 295, rep10h: 295, calc15h: 337, rep15h: 337 },
+          { dia: 10, calc10h: 318, rep10h: 318, calc15h: 329, rep15h: 329 },
+          { dia: 11, calc10h: 325, rep10h: 325, calc15h: 325, rep15h: 325 },
+          { dia: 12, calc10h: 268, rep10h: 268, calc15h: 346, rep15h: 346 },
+          { dia: 13, calc10h: 313, rep10h: 313, calc15h: 254, rep15h: 254 },
+          { dia: 14, calc10h: 408, rep10h: 408, calc15h: 351, rep15h: 351 },
+          { dia: 15, calc10h: 348, rep10h: 348, calc15h: 359, rep15h: 359 },
+          { dia: 16, calc10h: 342, rep10h: 342, calc15h: 378, rep15h: 378 },
+          { dia: 17, calc10h: 346, rep10h: 346, calc15h: 358, rep15h: 358 },
+          { dia: 18, calc10h: 302, rep10h: 302, calc15h: 312, rep15h: 312 },
+          { dia: 19, calc10h: 330, rep10h: 330, calc15h: 313, rep15h: 313 },
+          { dia: 20, calc10h: 352, rep10h: 352, calc15h: 360, rep15h: 360 },
+          { dia: 21, calc10h: 371, rep10h: 371, calc15h: 311, rep15h: 311 }
+        ],
+        equipes: [
+          { equipe: 'CnR Belém', cenas: 10, media10h: 114.2, media15h: 119.9 },
+          { equipe: 'CnR Brás', cenas: 7, media10h: 57.5, media15h: 55.6 },
+          { equipe: 'CnR Mooca', cenas: 8, media10h: 48.7, media15h: 33.5 },
+          { equipe: 'CnR Parque Imperial', cenas: 3, media10h: 32.8, media15h: 36.3 },
+          { equipe: 'CnR Ipiranga', cenas: 10, media10h: 34.3, media15h: 32.6 },
+          { equipe: 'CnR Aricanduva', cenas: 17, media10h: 30.2, media15h: 36.7 },
+          { equipe: 'CnR Pari I', cenas: 5, media10h: 9.0, media15h: 12.2 }
+        ]
+      },
+      crsSudeste: {
+        totalCortes: 5,
+        lacunaAcumulada: -103,
+        cortes: [
+          { aba: '02112026', label: '02/11', calculado: 397, informado: 397, diferenca: 0, errosSoma: 0, errosData: 8 },
+          { aba: '05112026', label: '05/11', calculado: 734, informado: 734, diferenca: 0, errosSoma: 1, errosData: 0 },
+          { aba: '09112026', label: '09/11', calculado: 729, informado: 722, diferenca: -7, errosSoma: 2, errosData: 1 },
+          { aba: '12112026', label: '12/11', calculado: 680, informado: 657, diferenca: -23, errosSoma: 3, errosData: 1 },
+          { aba: '16112026', label: '16/11', calculado: 805, informado: 732, diferenca: -73, errosSoma: 8, errosData: 25 }
+        ]
+      },
+      cnrBras: {
+        totalRegistros: 3011,
+        datasInvalidas: 0,
+        baseDesalinhada: true
+      },
+      inconsistencias: [
+        { planilha: 'Planilha Diária', severidade: 'Crítica', equipe: 'Geral', local: 'Dia 5 (10h) · Célula K63', detalhe: 'Fórmula truncada =SUM(K23:K62) ocultou 134 pessoas (informado 154 vs. real 288).' },
+        { planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'Geral', local: 'Cabeçalho · Célula C1', detalhe: 'Dia 1 rotulado como "4" no lugar de "1".' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Brás', local: '09112026 · Linha 117', detalhe: 'Rua Almeida Lima, 79: H=2 sem total preenchido na coluna J.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Brás', local: '16112026 · Linha 115', detalhe: 'Rua José de Alencar, 208: G(8)+H(4)=12, mas J fixo em 11.' },
+        { planilha: 'CRS Sudeste', severidade: 'Atenção', equipe: 'Equipe Brás', local: '09112026 · Linha 116', detalhe: 'Largo da Concórdia, 412: data ausente.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Belém', local: '16112026 · Linhas 105–110', detalhe: 'Mesmo número copiado em H e I (65+65=130) com J fixo em 65 (-65 pessoas).' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Mooca', local: '05112026 · Linha 90', detalhe: 'Largo São Rafael, 26: letra "o" digitada no lugar de zero em TOTAL.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Mooca', local: '09112026 · Linha 93', detalhe: 'Rua Dr. Almeida Lima, 900: H=5 com J fixo em 0.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Mooca', local: '12112026 · Linha 82', detalhe: 'Praça Barão do Tietê, 45: H=17 com J fixo em 0.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Pari II', local: '12112026 · Linha 36', detalhe: 'Rua dos Cajueiros, 320: H=4 com J fixo em 0.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Pari II', local: '16112026 · Linha 45', detalhe: 'Rangel Pestana, 2000: H=5 e I=5 (calc 10) com J fixo em 3.' },
+        { planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: 'Equipe Parque Imperial', local: '12112026 · Linha 18', detalhe: 'Av. Eng. Armando A. Pereira, 2313: H=6 com J fixo em 4.' },
+        { planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'CnR Pari I', local: 'Dias 9 e 12 (15h) · Linha 18', detalhe: 'Rua das Olarias, 500 sem preenchimento no turno das 15h.' },
+        { planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'CnR Parque Imperial', local: 'Dia 16 (15h) · Linha 5', detalhe: 'Rua Mário Cardim x Rio Grande sem preenchimento às 15h.' },
+        { planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'CnR Belém', local: 'Dia 20 (15h) · Linha 28', detalhe: 'Rua 21 de Abril sem preenchimento às 15h.' },
+        { planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'CnR Aricanduva', local: 'Dia 10 (15h) · Linha 62', detalhe: 'Praça Quinze de Outubro sem preenchimento às 15h.' },
+        { planilha: 'CNR - BRÁS', severidade: 'Atenção', equipe: 'CnR Brás', local: 'Aba Base · Colunas A/B e V+', detalhe: 'Cabeçalhos Data de Inclusão e Equipe/Líder invertidos e deslocamento a partir da col. V.' }
+      ]
+    };
+
+    const state = {
+      data: INITIAL_DATA,
+      activeTab: 'visao',
+      onlyBras: false,
+      search: '',
+      filterSheet: 'ALL',
+      filterSev: 'ALL',
+      apiUrl: '',
+      refreshTimer: null,
+      charts: { diaria: null, crs: null, equipes: null }
+    };
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(el._t);
+      el._t = setTimeout(() => el.classList.add('hidden'), 3200);
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/[&<>"']/g, (m) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[m]);
+    }
+
+    function isBrasTeam(name) {
+      return /br[aá]s/i.test(String(name || ''));
+    }
+
+    function getFilteredIssues() {
+      return (state.data.inconsistencias || []).filter((item) => {
+        if (state.onlyBras && !isBrasTeam(item.equipe) && item.planilha !== 'CNR - BRÁS') return false;
+        if (state.filterSheet !== 'ALL' && item.planilha !== state.filterSheet) return false;
+        if (state.filterSev !== 'ALL' && item.severidade !== state.filterSev) return false;
+        if (state.search) {
+          const hay = (item.planilha + ' ' + item.equipe + ' ' + item.local + ' ' + item.detalhe).toLowerCase();
+          if (!hay.includes(state.search.toLowerCase())) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderKpis() {
+      const pd = state.data.planilhaDiaria || {};
+      const crs = state.data.crsSudeste || {};
+      const bras = state.data.cnrBras || {};
+
+      const gapD = Number(pd.maiorSubnotificacao || 0);
+      document.getElementById('kpiDiariaGap').textContent = gapD > 0 ? '-' + gapD : String(gapD);
+
+      const gapC = Number(crs.lacunaAcumulada || 0);
+      document.getElementById('kpiCrsGap').textContent = String(gapC);
+
+      const eqBras = (pd.equipes || []).find((e) => isBrasTeam(e.equipe));
+      document.getElementById('kpiBrasAvg').textContent = eqBras
+        ? `${String(eqBras.media10h).replace('.', ',')} / ${String(eqBras.media15h).replace('.', ',')}`
+        : '—';
+
+      document.getElementById('kpiNominal').textContent = Number(bras.totalRegistros || 0).toLocaleString('pt-BR');
+      document.getElementById('badgeCount').textContent = String(getFilteredIssues().length);
+
+      const dt = state.data.atualizadoEm ? new Date(state.data.atualizadoEm) : null;
+      const fmt = dt && !isNaN(dt.getTime())
+        ? dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '21/11/2026';
+      document.getElementById('lastUpdatedLabel').textContent = 'Atualizado: ' + fmt;
+    }
+
+    function renderCharts() {
+      if (typeof Chart === 'undefined') return;
+      const pd = state.data.planilhaDiaria || { serieDiaria: [], equipes: [] };
+      const crs = state.data.crsSudeste || { cortes: [] };
+
+      // 1. Planilha Diária
+      if (state.charts.diaria) state.charts.diaria.destroy();
+      const ctxD = document.getElementById('chartDiaria').getContext('2d');
+      state.charts.diaria = new Chart(ctxD, {
+        type: 'line',
+        data: {
+          labels: pd.serieDiaria.map((d) => String(d.dia).padStart(2, '0') + '/11'),
+          datasets: [
+            {
+              label: '10h Calculado',
+              data: pd.serieDiaria.map((d) => d.calc10h),
+              borderColor: '#0f766e',
+              backgroundColor: 'rgba(15,118,110,0.08)',
+              borderWidth: 2.5,
+              tension: 0.25,
+              pointRadius: 3
+            },
+            {
+              label: '10h Informado (Linha 63)',
+              data: pd.serieDiaria.map((d) => d.rep10h),
+              borderColor: '#b91c1c',
+              borderDash: [5, 4],
+              borderWidth: 2,
+              tension: 0.2,
+              pointRadius: pd.serieDiaria.map((d) => (d.calc10h !== d.rep10h ? 6 : 2)),
+              pointBackgroundColor: '#b91c1c'
+            },
+            {
+              label: '15h Calculado',
+              data: pd.serieDiaria.map((d) => d.calc15h),
+              borderColor: '#64748b',
+              borderWidth: 1.8,
+              tension: 0.25,
+              pointRadius: 2
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+          scales: { y: { beginAtZero: false, suggestedMin: 100 } }
+        }
+      });
+
+      // 2. CRS Sudeste
+      if (state.charts.crs) state.charts.crs.destroy();
+      const ctxC = document.getElementById('chartCrs').getContext('2d');
+      state.charts.crs = new Chart(ctxC, {
+        type: 'bar',
+        data: {
+          labels: crs.cortes.map((c) => c.label),
+          datasets: [
+            {
+              label: 'Total Calculado (G+H+I)',
+              data: crs.cortes.map((c) => c.calculado),
+              backgroundColor: '#0f766e',
+              borderRadius: 6
+            },
+            {
+              label: 'Total Informado (Col. J)',
+              data: crs.cortes.map((c) => c.informado),
+              backgroundColor: crs.cortes.map((c) => (c.diferenca < 0 ? '#b91c1c' : '#94a3b8')),
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+
+      // 3. Equipes
+      if (state.charts.equipes) state.charts.equipes.destroy();
+      const ctxE = document.getElementById('chartEquipes').getContext('2d');
+      const eqList = state.onlyBras ? pd.equipes.filter((e) => isBrasTeam(e.equipe)) : pd.equipes;
+      state.charts.equipes = new Chart(ctxE, {
+        type: 'bar',
+        data: {
+          labels: eqList.map((e) => e.equipe),
+          datasets: [
+            {
+              label: 'Média 10h',
+              data: eqList.map((e) => e.media10h),
+              backgroundColor: eqList.map((e) => (isBrasTeam(e.equipe) ? '#0f766e' : '#14b8a6')),
+              borderRadius: 6
+            },
+            {
+              label: 'Média 15h',
+              data: eqList.map((e) => e.media15h),
+              backgroundColor: '#64748b',
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+          scales: { x: { beginAtZero: true } }
+        }
+      });
+    }
+
+    function renderTables() {
+      const issues = getFilteredIssues();
+      const tbody = document.getElementById('issuesTableBody');
+      if (!issues.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-sm text-slate-500">Nenhuma inconsistência encontrada para os filtros selecionados.</td></tr>';
+      } else {
+        tbody.innerHTML = issues.map((item) => {
+          const sevBadge = item.severidade === 'Crítica'
+            ? '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-800">Crítica</span>'
+            : '<span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">Atenção</span>';
+          return `<tr class="hover:bg-slate-50">
+            <td class="whitespace-nowrap px-4 py-3">${sevBadge}</td>
+            <td class="whitespace-nowrap px-4 py-3 font-medium text-slate-800">${escapeHtml(item.planilha)}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-slate-700">${escapeHtml(item.equipe)}</td>
+            <td class="mono whitespace-nowrap px-4 py-3 text-xs text-slate-600">${escapeHtml(item.local)}</td>
+            <td class="px-4 py-3 text-slate-700">${escapeHtml(item.detalhe)}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      const eqList = (state.data.planilhaDiaria && state.data.planilhaDiaria.equipes) ? state.data.planilhaDiaria.equipes : [];
+      const shownEq = state.onlyBras ? eqList.filter((e) => isBrasTeam(e.equipe)) : eqList;
+      document.getElementById('teamsTableBody').innerHTML = shownEq.map((e) => {
+        const comb = ((e.media10h + e.media15h) / 2).toFixed(1).replace('.', ',');
+        const highlight = isBrasTeam(e.equipe) ? 'bg-teal-50/60 font-semibold' : '';
+        return `<tr class="${highlight} hover:bg-slate-50">
+          <td class="px-4 py-3 text-slate-900">${escapeHtml(e.equipe)}</td>
+          <td class="mono px-4 py-3 text-right text-slate-700">${e.cenas}</td>
+          <td class="mono px-4 py-3 text-right text-teal-800">${String(e.media10h).replace('.', ',')}</td>
+          <td class="mono px-4 py-3 text-right text-slate-700">${String(e.media15h).replace('.', ',')}</td>
+          <td class="mono px-4 py-3 text-right font-semibold text-slate-900">${comb}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function renderAll() {
+      renderKpis();
+      renderCharts();
+      renderTables();
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+
+    function switchTab(tabName) {
+      state.activeTab = tabName;
+      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.add('hidden'));
+      const activePanel = document.getElementById('tab-' + tabName);
+      if (activePanel) activePanel.classList.remove('hidden');
+
+      document.querySelectorAll('.nav-tab').forEach((btn) => {
+        const isCurrent = btn.dataset.tab === tabName;
+        btn.classList.toggle('tab-active', isCurrent);
+        btn.classList.toggle('tab-idle', !isCurrent);
+      });
+      if (tabName === 'visao' || tabName === 'equipes') renderCharts();
+    }
+
+    async function fetchLiveData() {
+      const url = state.apiUrl.trim();
+      const errEl = document.getElementById('apiErrorBanner');
+      if (!url) {
+        showToast('Cole a URL /exec do Apps Script para conectar em tempo real.');
+        return;
+      }
+      if (!url.startsWith('https://')) {
+        errEl.textContent = 'A URL do Apps Script deve começar com https://.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      errEl.classList.add('hidden');
+      const badge = document.getElementById('statusBadge');
+      const dot = document.getElementById('statusDot');
+      const txt = document.getElementById('statusText');
+      txt.textContent = 'Sincronizando...';
+
+      try {
+        const resp = await fetch(url, { method: 'GET' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const json = await resp.json();
+        if (!json || !json.ok) throw new Error('Resposta inválida da API.');
+        state.data = json;
+        badge.className = 'inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800';
+        dot.className = 'h-2 w-2 rounded-full bg-emerald-500';
+        txt.textContent = 'Ao Vivo · Google Sheets';
+        renderAll();
+        showToast('Planilhas sincronizadas em tempo real!');
+      } catch (err) {
+        badge.className = 'inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800';
+        dot.className = 'h-2 w-2 rounded-full bg-amber-500';
+        txt.textContent = 'Base 21/11/2026 (Fallback)';
+        errEl.textContent = 'Não foi possível ler a URL informada (' + err.message + '). Verifique se o Apps Script foi implantado como "Qualquer pessoa" e tente novamente.';
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    function setupAutoRefresh(seconds) {
+      if (state.refreshTimer) {
+        clearInterval(state.refreshTimer);
+        state.refreshTimer = null;
+      }
+      const sec = Number(seconds || 0);
+      if (sec > 0) {
+        state.refreshTimer = setInterval(() => {
+          if (state.apiUrl) fetchLiveData();
+        }, sec * 1000);
+        showToast('Auto-atualização ativada a cada ' + (sec === 60 ? '1 min' : '5 min') + '.');
+      }
+    }
+
+    function exportIssuesCsv() {
+      const rows = getFilteredIssues();
+      const header = ['Severidade', 'Planilha', 'Equipe', 'Local', 'Detalhe'];
+      const lines = [header.join(';')].concat(rows.map((r) =>
+        [r.severidade, r.planilha, r.equipe, r.local, r.detalhe]
+          .map((v) => '"' + String(v || '').replace(/"/g, '""') + '"')
+          .join(';')
+      ));
+      const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'inconsistencias_cenas_uso.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('CSV exportado com ' + rows.length + ' registros.');
+    }
+
+    function copyGasCode() {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(GAS_CODE)
+          .then(() => showToast('Código Code.gs copiado para a área de transferência!'))
+          .catch(() => fallbackCopy(GAS_CODE));
+      } else {
+        fallbackCopy(GAS_CODE);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        showToast('Código Code.gs copiado!');
+      } catch (e) {
+        showToast('Selecione e copie o bloco Code.gs manualmente.');
+      }
+      document.body.removeChild(ta);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('gasCodeBlock').textContent = GAS_CODE;
+
+      try {
+        const saved = localStorage.getItem('monitor_cenas_gas_url');
+        if (saved) {
+          state.apiUrl = saved;
+          document.getElementById('apiUrlInput').value = saved;
+        }
+      } catch (e) {}
+
+      document.querySelectorAll('.nav-tab').forEach((btn) => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+      });
+
+      document.getElementById('btnOnlyBras').addEventListener('click', (e) => {
+        state.onlyBras = !state.onlyBras;
+        const btn = e.currentTarget;
+        btn.classList.toggle('bg-teal-700', state.onlyBras);
+        btn.classList.toggle('text-white', state.onlyBras);
+        btn.classList.toggle('border-teal-700', state.onlyBras);
+        btn.classList.toggle('bg-white', !state.onlyBras);
+        btn.classList.toggle('text-slate-700', !state.onlyBras);
+        renderAll();
+      });
+
+      document.getElementById('btnConnect').addEventListener('click', () => {
+        const val = document.getElementById('apiUrlInput').value.trim();
+        state.apiUrl = val;
+        try { localStorage.setItem('monitor_cenas_gas_url', val); } catch (e) {}
+        fetchLiveData();
+      });
+
+      document.getElementById('btnRefreshNow').addEventListener('click', () => {
+        if (state.apiUrl) fetchLiveData();
+        else { renderAll(); showToast('Painel atualizado com a base de referência. Conecte a URL /exec para modo ao vivo.'); }
+      });
+
+      document.getElementById('autoRefreshSelect').addEventListener('change', (e) => {
+        setupAutoRefresh(e.target.value);
+      });
+
+      document.getElementById('searchInput').addEventListener('input', (e) => {
+        state.search = e.target.value;
+        renderTables();
+        document.getElementById('badgeCount').textContent = String(getFilteredIssues().length);
+      });
+
+      document.getElementById('filterSheet').addEventListener('change', (e) => {
+        state.filterSheet = e.target.value;
+        renderTables();
+        document.getElementById('badgeCount').textContent = String(getFilteredIssues().length);
+      });
+
+      document.getElementById('filterSev').addEventListener('change', (e) => {
+        state.filterSev = e.target.value;
+        renderTables();
+        document.getElementById('badgeCount').textContent = String(getFilteredIssues().length);
+      });
+
+      document.getElementById('btnExportCsv').addEventListener('click', exportIssuesCsv);
+      document.getElementById('btnCopyGas').addEventListener('click', copyGasCode);
+
+      renderAll();
+    });
+  </script>
+</body>
+</html>
