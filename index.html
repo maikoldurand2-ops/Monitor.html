@@ -69,10 +69,6 @@
           <i data-lucide="users" class="h-4 w-4"></i>
           <span>Equipes &amp; Cenas</span>
         </button>
-        <button data-tab="appsscript" type="button" class="nav-tab tab-idle inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold sm:text-sm transition">
-          <i data-lucide="code-2" class="h-4 w-4"></i>
-          <span>Apps Script &amp; Netlify</span>
-        </button>
       </nav>
     </div>
   </header>
@@ -263,227 +259,9 @@
         </div>
       </div>
     </section>
-
-    <!-- TAB 4: APPS SCRIPT & NETLIFY -->
-    <section id="tab-appsscript" class="tab-panel hidden space-y-6">
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 class="text-base font-bold text-slate-900">1. Publicar a API no Google Apps Script</h2>
-          <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
-            <li>Acesse <span class="mono font-semibold text-slate-800">script.google.com</span> com sua conta Google que tem acesso às 3 planilhas.</li>
-            <li>Crie um novo projeto, apague o conteúdo inicial e cole o código <span class="mono font-semibold text-slate-800">Code.gs</span> abaixo.</li>
-            <li>Clique em <strong>Implantar → Nova implantação → App da Web</strong>.</li>
-            <li>Em <em>Executar como</em> escolha <strong>Eu</strong>; em <em>Quem pode acessar</em> escolha <strong>Qualquer pessoa</strong>.</li>
-            <li>Autorize o acesso somente leitura, copie a URL gerada (termina em <span class="mono">/exec</span>) e cole na barra superior deste painel.</li>
-          </ol>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 class="text-base font-bold text-slate-900">2. Subir o Painel no Netlify Drop</h2>
-          <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
-            <li>Baixe o arquivo <span class="mono font-semibold text-slate-800">painel_cenas_uso_netlify.zip</span> (já contém <span class="mono">index.html</span> na raiz).</li>
-            <li>Abra <span class="mono font-semibold text-slate-800">app.netlify.com/drop</span> no navegador (PC ou celular em modo computador).</li>
-            <li>Arraste o arquivo <span class="mono">.zip</span> (ou a pasta descompactada) para a área de upload do Netlify Drop.</li>
-            <li>Abra o link publicado pelo Netlify, cole sua URL <span class="mono">/exec</span> do Apps Script na barra acima e clique em <strong>Conectar API</strong>.</li>
-          </ol>
-        </div>
-      </div>
-
-      <div class="rounded-2xl border border-slate-200 bg-slate-900 p-4 shadow-sm">
-        <div class="mb-3 flex items-center justify-between">
-          <span class="mono text-xs font-semibold text-teal-400">Code.gs — Google Apps Script (Somente Leitura)</span>
-          <button id="btnCopyGas" type="button" class="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-500 transition">
-            <i data-lucide="copy" class="h-3.5 w-3.5"></i>
-            <span>Copiar Code.gs</span>
-          </button>
-        </div>
-        <pre id="gasCodeBlock" class="mono max-h-96 overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-relaxed text-slate-200"></pre>
-      </div>
-    </section>
   </main>
 
   <script>
-    const GAS_CODE = `/**
- * Monitor Cenas de Uso — API em Tempo Real (Google Apps Script)
- * Somente leitura: nunca altera células, fórmulas ou linhas de nenhuma equipe.
- * Privacidade: em CNR - BRÁS retorna apenas contagens agregadas (zero PII).
- */
-const CONFIG = {
-  CRS_SUDESTE_ID: '1-UF36937geDEdLTwDqnkYD0zAcoQLIACDPgvK_LlFN8',
-  PLANILHA_DIARIA_ID: '11zw_rhfcoXxZNcrXPqtfnk3fgYPBTwsXdJfTQcwGpN4',
-  CNR_BRAS_ID: '1u8ZAfZL18CuPdycBnJzlSzVUU5peUUw5MNyzFtwkhGY',
-  ABA_DIARIA_PADRAO: 'Novembro26',
-  SUFIXO_CRS_PADRAO: '112026'
-};
-
-function doGet(e) {
-  const params = (e && e.parameter) ? e.parameter : {};
-  const abaDiaria = params.abaDiaria || CONFIG.ABA_DIARIA_PADRAO;
-  const sufixoCrs = params.sufixoCrs || CONFIG.SUFIXO_CRS_PADRAO;
-  const resultado = {
-    ok: true,
-    atualizadoEm: new Date().toISOString(),
-    fonte: 'ao_vivo',
-    planilhaDiaria: null,
-    crsSudeste: null,
-    cnrBras: null,
-    inconsistencias: [],
-    errosLeitura: []
-  };
-  try {
-    const pd = auditarPlanilhaDiaria_(CONFIG.PLANILHA_DIARIA_ID, abaDiaria);
-    resultado.planilhaDiaria = pd.resumo;
-    resultado.inconsistencias = resultado.inconsistencias.concat(pd.inconsistencias);
-  } catch (err) { resultado.errosLeitura.push('Planilha Diária: ' + err.message); }
-  try {
-    const crs = auditarCrsSudeste_(CONFIG.CRS_SUDESTE_ID, sufixoCrs);
-    resultado.crsSudeste = crs.resumo;
-    resultado.inconsistencias = resultado.inconsistencias.concat(crs.inconsistencias);
-  } catch (err) { resultado.errosLeitura.push('CRS Sudeste: ' + err.message); }
-  try {
-    const bras = auditarCnrBrasAgregado_(CONFIG.CNR_BRAS_ID);
-    resultado.cnrBras = bras.resumo;
-    resultado.inconsistencias = resultado.inconsistencias.concat(bras.inconsistencias);
-  } catch (err) { resultado.errosLeitura.push('CNR - BRÁS: ' + err.message); }
-
-  return ContentService
-    .createTextOutput(JSON.stringify(resultado))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-function toNum_(val) {
-  if (val === null || val === undefined || val === '') return { n: 0, err: false };
-  if (typeof val === 'number') return { n: val, err: false };
-  const s = String(val).trim();
-  if (s === '' || s === '-' || s === '–' || s.toUpperCase() === 'N/A') return { n: 0, err: false };
-  if (s.indexOf('#') === 0) return { n: 0, err: true };
-  const p = Number(s.replace(',', '.'));
-  return isNaN(p) ? { n: 0, err: true } : { n: p, err: false };
-}
-
-function auditarPlanilhaDiaria_(sheetId, abaNome) {
-  const ss = SpreadsheetApp.openById(sheetId);
-  const ws = ss.getSheetByName(abaNome);
-  if (!ws) throw new Error('Aba não encontrada: ' + abaNome);
-  const lastRow = Math.min(ws.getLastRow(), 120);
-  const lastCol = Math.min(ws.getLastColumn(), 62);
-  const vals = ws.getRange(1, 1, lastRow, lastCol).getValues();
-  const forms = ws.getRange(1, 1, lastRow, lastCol).getFormulas();
-  let totalRowIdx = -1;
-  for (let r = 0; r < vals.length; r++) {
-    if (String(vals[r][0] || '').trim().toLowerCase() === 'total') { totalRowIdx = r; break; }
-  }
-  if (totalRowIdx < 2) throw new Error('Linha Total não localizada.');
-  const inconsistencias = [], serieDiaria = [], equipesMap = {}, linhaEquipe = [];
-  let equipeAtual = '';
-  for (let r = 2; r < totalRowIdx; r++) {
-    const colA = String(vals[r][0] || '').replace(/\\n/g, ' ').trim();
-    if (colA) equipeAtual = colA.split(/novembro|outubro|dezembro|janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro/i)[0].trim();
-    linhaEquipe[r] = equipeAtual || 'Sem Equipe';
-    if (!equipesMap[linhaEquipe[r]]) equipesMap[linhaEquipe[r]] = { equipe: linhaEquipe[r], cenas: 0, soma10h: 0, soma15h: 0 };
-    equipesMap[linhaEquipe[r]].cenas += 1;
-  }
-  let diasComDados = 0, maiorSubnotificacao = 0;
-  for (let d = 1; d <= 30; d++) {
-    const c10 = 2 + (d - 1) * 2, c15 = 3 + (d - 1) * 2;
-    if (c15 >= lastCol) break;
-    if (Number(vals[0][c10]) !== d) {
-      inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Atenção', equipe: 'Geral', local: 'Cabeçalho Dia ' + d, detalhe: 'Cabeçalho indica "' + vals[0][c10] + '" no lugar de ' + d + '.' });
-    }
-    let soma10 = 0, soma15 = 0, temDado = false;
-    for (let r = 2; r < totalRowIdx; r++) {
-      if (typeof vals[r][c10] === 'number') { soma10 += vals[r][c10]; temDado = true; equipesMap[linhaEquipe[r]].soma10h += vals[r][c10]; }
-      if (typeof vals[r][c15] === 'number') { soma15 += vals[r][c15]; temDado = true; equipesMap[linhaEquipe[r]].soma15h += vals[r][c15]; }
-    }
-    if (!temDado) continue;
-    diasComDados++;
-    for (let r = 2; r < totalRowIdx; r++) {
-      if (vals[r][c15] === '' || vals[r][c15] === null) {
-        inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Atenção', equipe: linhaEquipe[r], local: 'Dia ' + d + ' (15h) · Linha ' + (r + 1), detalhe: 'Célula vazia (' + String(vals[r][1] || '').slice(0, 42) + ').' });
-      }
-    }
-    const rep10 = toNum_(vals[totalRowIdx][c10]).n, rep15 = toNum_(vals[totalRowIdx][c15]).n;
-    if (Math.abs(soma10 - rep10) > 0.01) {
-      if (Math.abs(soma10 - rep10) > Math.abs(maiorSubnotificacao)) maiorSubnotificacao = rep10 - soma10;
-      inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Crítica', equipe: 'Geral', local: 'Dia ' + d + ' (10h) · Linha ' + (totalRowIdx + 1), detalhe: 'Informado=' + rep10 + ' != Calculado=' + soma10 + ' (' + (forms[totalRowIdx][c10] || 'fixo') + ').' });
-    }
-    if (Math.abs(soma15 - rep15) > 0.01) {
-      inconsistencias.push({ planilha: 'Planilha Diária', severidade: 'Crítica', equipe: 'Geral', local: 'Dia ' + d + ' (15h) · Linha ' + (totalRowIdx + 1), detalhe: 'Informado=' + rep15 + ' != Calculado=' + soma15 + '.' });
-    }
-    serieDiaria.push({ dia: d, calc10h: soma10, rep10h: rep10, calc15h: soma15, rep15h: rep15 });
-  }
-  const equipes = Object.keys(equipesMap).map(function(k) {
-    const e = equipesMap[k];
-    return { equipe: e.equipe, cenas: e.cenas, media10h: diasComDados ? Number((e.soma10h / diasComDados).toFixed(1)) : 0, media15h: diasComDados ? Number((e.soma15h / diasComDados).toFixed(1)) : 0 };
-  }).sort(function(a, b) { return (b.media10h + b.media15h) - (a.media10h + a.media15h); });
-  return { resumo: { aba: abaNome, diasRegistrados: diasComDados, maiorSubnotificacao: maiorSubnotificacao, serieDiaria: serieDiaria, equipes: equipes }, inconsistencias: inconsistencias };
-}
-
-function auditarCrsSudeste_(sheetId, sufixo) {
-  const ss = SpreadsheetApp.openById(sheetId);
-  const sheets = ss.getSheets().filter(function(s) { return s.getName().trim().slice(-sufixo.length) === sufixo; });
-  const cortes = [], inconsistencias = [];
-  let lacunaTotal = 0;
-  sheets.forEach(function(ws) {
-    const tab = ws.getName().trim(), lastRow = ws.getLastRow();
-    if (lastRow < 5) return;
-    const vals = ws.getRange(5, 1, lastRow - 4, 15).getValues();
-    const forms = ws.getRange(5, 1, lastRow - 4, 15).getFormulas();
-    let equipeAtual = '', calcSum = 0, repSum = 0, errosSoma = 0, errosData = 0;
-    for (let i = 0; i < vals.length; i++) {
-      const row = vals[i], fRow = forms[i], rowNum = i + 5;
-      const t = String(row[0] || '').trim();
-      if (t) { if (/^(TOTAL|SOMA)/i.test(t)) continue; equipeAtual = t.split('(')[0].trim(); }
-      const dataVal = row[1], endVal = String(row[3] || '').trim();
-      if (!endVal && (dataVal === '' || dataVal === null)) continue;
-      const g = toNum_(row[6]).n, h = toNum_(row[7]).n, ii = toNum_(row[8]).n, jObj = toNum_(row[9]);
-      const calc = g + h + ii;
-      calcSum += calc; repSum += jObj.n;
-      if (jObj.err) {
-        errosSoma++;
-        inconsistencias.push({ planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: equipeAtual, local: tab + ' · Linha ' + rowNum, detalhe: 'Valor inválido em TOTAL: "' + row[9] + '".' });
-      } else if (Math.abs(calc - jObj.n) > 0.01) {
-        errosSoma++;
-        inconsistencias.push({ planilha: 'CRS Sudeste', severidade: 'Crítica', equipe: equipeAtual, local: tab + ' · Linha ' + rowNum, detalhe: 'G(' + g + ')+H(' + h + ')+I(' + ii + ')=' + calc + ' != J=' + jObj.n + ' (' + (fRow[9] || 'fixo') + ').' });
-      }
-      if (!(dataVal instanceof Date) && (!dataVal || String(dataVal).trim() === '' || String(dataVal).trim() === '-')) {
-        errosData++;
-        inconsistencias.push({ planilha: 'CRS Sudeste', severidade: 'Atenção', equipe: equipeAtual, local: tab + ' · Linha ' + rowNum, detalhe: 'Data ausente ou inválida (' + endVal.slice(0, 38) + ').' });
-      }
-    }
-    const dif = repSum - calcSum;
-    lacunaTotal += dif;
-    cortes.push({ aba: tab, label: tab.slice(0, 2) + '/' + tab.slice(2, 4), calculado: calcSum, informado: repSum, diferenca: dif, errosSoma: errosSoma, errosData: errosData });
-  });
-  return { resumo: { totalCortes: cortes.length, lacunaAcumulada: lacunaTotal, cortes: cortes }, inconsistencias: inconsistencias };
-}
-
-function auditarCnrBrasAgregado_(sheetId) {
-  const ss = SpreadsheetApp.openById(sheetId);
-  const wsReg = ss.getSheetByName('Registro Diário');
-  const wsBase = ss.getSheetByName('Base');
-  const inconsistencias = [];
-  const totalRegistros = wsReg ? Math.max(0, wsReg.getLastRow() - 1) : 0;
-  let datasInvalidas = 0;
-  if (wsReg && totalRegistros > 0) {
-    const colDatas = wsReg.getRange(2, 2, totalRegistros, 1).getValues();
-    for (let i = 0; i < colDatas.length; i++) {
-      if (!colDatas[i][0] || (!(colDatas[i][0] instanceof Date) && String(colDatas[i][0]).trim() === '')) datasInvalidas++;
-    }
-    if (datasInvalidas > 0) {
-      inconsistencias.push({ planilha: 'CNR - BRÁS', severidade: 'Atenção', equipe: 'CnR Brás', local: 'Registro Diário', detalhe: datasInvalidas + ' registros sem data válida (contagem agregada).' });
-    }
-  }
-  let baseDesalinhada = false;
-  if (wsBase && wsBase.getLastRow() >= 2) {
-    const amostra = wsBase.getRange(1, 1, 2, 2).getValues();
-    if (String(amostra[0][0]).toLowerCase().indexOf('data') !== -1 && !(amostra[1][0] instanceof Date)) {
-      baseDesalinhada = true;
-      inconsistencias.push({ planilha: 'CNR - BRÁS', severidade: 'Atenção', equipe: 'CnR Brás', local: 'Aba Base · Colunas A/B', detalhe: 'Colunas Data de Inclusão e Equipe/Líder invertidas e deslocamento a partir da col. V.' });
-    }
-  }
-  return { resumo: { totalRegistros: totalRegistros, datasInvalidas: datasInvalidas, baseDesalinhada: baseDesalinhada }, inconsistencias: inconsistencias };
-}`;
 
     // Dados reais verificados da auditoria de 21/11/2026 (estado inicial imediato)
     const INITIAL_DATA = {
@@ -871,34 +649,7 @@ function auditarCnrBrasAgregado_(sheetId) {
       showToast('CSV exportado com ' + rows.length + ' registros.');
     }
 
-    function copyGasCode() {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(GAS_CODE)
-          .then(() => showToast('Código Code.gs copiado para a área de transferência!'))
-          .catch(() => fallbackCopy(GAS_CODE));
-      } else {
-        fallbackCopy(GAS_CODE);
-      }
-    }
-
-    function fallbackCopy(text) {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand('copy');
-        showToast('Código Code.gs copiado!');
-      } catch (e) {
-        showToast('Selecione e copie o bloco Code.gs manualmente.');
-      }
-      document.body.removeChild(ta);
-    }
-
     document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('gasCodeBlock').textContent = GAS_CODE;
 
       try {
         const saved = localStorage.getItem('monitor_cenas_gas_url');
@@ -958,7 +709,6 @@ function auditarCnrBrasAgregado_(sheetId) {
       });
 
       document.getElementById('btnExportCsv').addEventListener('click', exportIssuesCsv);
-      document.getElementById('btnCopyGas').addEventListener('click', copyGasCode);
 
       renderAll();
     });
